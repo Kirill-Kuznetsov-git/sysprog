@@ -12,7 +12,7 @@
 /** Main coroutine structure, its context. */
 struct coro {
 	/** A value, returned by func. */
-	int ret;
+    void* ret;
 	/** Stack, used by the coroutine. */
 	void *stack;
 	/** An argument for the function func. */
@@ -73,8 +73,8 @@ coro_list_delete(struct coro *c)
 		coro_list = next;
 }
 
-int
-coro_status(const struct coro *c)
+void*
+coro_result(const struct coro *c)
 {
 	return c->ret;
 }
@@ -187,7 +187,7 @@ struct coro *
 coro_new(coro_f func, void *func_arg)
 {
 	struct coro *c = (struct coro *) malloc(sizeof(*c));
-	c->ret = 0;
+	c->ret = NULL;
 	int stack_size = 1024 * 1024;
 	if (stack_size < SIGSTKSZ)
 		stack_size = SIGSTKSZ;
