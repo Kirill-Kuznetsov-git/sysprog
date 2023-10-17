@@ -7,15 +7,15 @@
 #include <string.h>
 
 static int
-execute_command_line(const struct command_line *line)
+execute_command_line(const struct command_line *line, int* exit_called)
 {
 	assert(line != NULL);
-    FILE* file_out_descriptor = NULL;
+    int file_out_descriptor = -1;
 	if (line->out_type == OUTPUT_TYPE_STDOUT) {
 	} else if (line->out_type == OUTPUT_TYPE_FILE_NEW) {
-        file_out_descriptor = fopen(line->out_file, "w");
+        file_out_descriptor = fileno(fopen(line->out_file, "w"));
 	} else if (line->out_type == OUTPUT_TYPE_FILE_APPEND) {
-        file_out_descriptor = fopen(line->out_file, "a+");
+        file_out_descriptor = fileno(fopen(line->out_file, "a+"));
 	} else {
 		assert(false);
 	}
@@ -31,9 +31,11 @@ execute_command_line(const struct command_line *line)
             if (e->cmd.arg_count >= 1) {
                 int exit_code;
                 sscanf(e->cmd.args[0], "%d", &exit_code);
-                exit(exit_code);
+                *exit_called = 1;
+                return exit_code;
             } else {
-                exit(0);
+                *exit_called = 1;
+                return 0;
             }
         }
 
@@ -59,9 +61,9 @@ execute_command_line(const struct command_line *line)
                 }
                 if (pid == 0) {
                     // Child process
-                    if (file_out_descriptor != NULL && e->next == NULL) {
-                        dup2(fileno(file_out_descriptor), STDOUT_FILENO);
-                        fclose(file_out_descriptor);
+                    if (file_out_descriptor != -1 && e->next == NULL) {
+                        dup2(file_out_descriptor, STDOUT_FILENO);
+                        close(file_out_descriptor);
                     }
                     if (pre_expr_pipe == 1) {
                         dup2(pre_pipe_descriptors[0], STDIN_FILENO);
@@ -81,20 +83,24 @@ execute_command_line(const struct command_line *line)
                     exec_args[e->cmd.arg_count + 1] = NULL;
 
                     if (strcmp(e->cmd.exe, "exit") == 0) {
-                        close(STDIN_FILENO);
-                        close(STDOUT_FILENO);
                         if (e->cmd.arg_count >= 1) {
                             int exit_code;
                             sscanf(e->cmd.args[0], "%d", &exit_code);
-                            exit(exit_code);
+                            free(exec_args);
+                            *exit_called = 1;
+                            return exit_code;
                         } else {
-                            exit(0);
+                            free(exec_args);
+                            *exit_called = 1;
+                            return 0;
                         }
                     }
                     int exec_res = execvp(e->cmd.exe, exec_args);
                     if (exec_res < 0) {
                         printf("Error with code %d while execv %s in child fork %d\n", exec_res, e->cmd.exe, getpid());
                     }
+                    free(exec_args);
+                    return 1;
                 } else {
                     // Parent process
                     if (pre_expr_pipe == 1) {
@@ -113,7 +119,7 @@ execute_command_line(const struct command_line *line)
                     }
 
                     if (e->next == NULL) {
-                        fclose(file_out_descriptor);
+                        close(file_out_descriptor);
                     }
                 }
             }
@@ -139,8 +145,9 @@ main(void)
 	char buf[buf_size];
 	int rc;
     int global_exit_code = 0;
+    int exit_called = 0;
 	struct parser *p = parser_new();
-	while ((rc = read(STDIN_FILENO, buf, buf_size)) > 0) {
+	while (exit_called == 0 && (rc = read(STDIN_FILENO, buf, buf_size)) > 0) {
 		parser_feed(p, buf, rc);
 		struct command_line *line = NULL;
 		while (true) {
@@ -151,10 +158,13 @@ main(void)
 				printf("Error: %d\n", (int)err);
 				continue;
 			}
-			global_exit_code = execute_command_line(line);
-			command_line_delete(line);
+			global_exit_code = execute_command_line(line, &exit_called);
+            command_line_delete(line);
+            if (exit_called != 0) {
+                break;
+            }
 		}
 	}
-	parser_delete(p);
+    parser_delete(p);
 	return global_exit_code;
 }
