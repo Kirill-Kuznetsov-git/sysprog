@@ -81,6 +81,8 @@ execute_command_line(const struct command_line *line)
                     exec_args[e->cmd.arg_count + 1] = NULL;
 
                     if (strcmp(e->cmd.exe, "exit") == 0) {
+                        close(STDIN_FILENO);
+                        close(STDOUT_FILENO);
                         if (e->cmd.arg_count >= 1) {
                             int exit_code;
                             sscanf(e->cmd.args[0], "%d", &exit_code);
