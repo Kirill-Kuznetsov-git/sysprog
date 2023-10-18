@@ -10,12 +10,12 @@ static int
 execute_command_line(const struct command_line *line, int* exit_called)
 {
 	assert(line != NULL);
-    int file_out_descriptor = -1;
+    FILE* file_out_descriptor = NULL;
 	if (line->out_type == OUTPUT_TYPE_STDOUT) {
 	} else if (line->out_type == OUTPUT_TYPE_FILE_NEW) {
-        file_out_descriptor = fileno(fopen(line->out_file, "w"));
+        file_out_descriptor = fopen(line->out_file, "w");
 	} else if (line->out_type == OUTPUT_TYPE_FILE_APPEND) {
-        file_out_descriptor = fileno(fopen(line->out_file, "a+"));
+        file_out_descriptor = fopen(line->out_file, "a+");
 	} else {
 		assert(false);
 	}
@@ -61,9 +61,9 @@ execute_command_line(const struct command_line *line, int* exit_called)
                 }
                 if (pid == 0) {
                     // Child process
-                    if (file_out_descriptor != -1 && e->next == NULL) {
-                        dup2(file_out_descriptor, STDOUT_FILENO);
-                        close(file_out_descriptor);
+                    if (file_out_descriptor != NULL && e->next == NULL) {
+                        dup2(fileno(file_out_descriptor), STDOUT_FILENO);
+                        fclose(file_out_descriptor);
                     }
                     if (pre_expr_pipe == 1) {
                         dup2(pre_pipe_descriptors[0], STDIN_FILENO);
@@ -119,7 +119,7 @@ execute_command_line(const struct command_line *line, int* exit_called)
                     }
 
                     if (e->next == NULL) {
-                        close(file_out_descriptor);
+                        fclose(file_out_descriptor);
                     }
                 }
             }
