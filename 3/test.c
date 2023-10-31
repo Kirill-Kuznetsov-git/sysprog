@@ -1,8 +1,9 @@
 #include "userfs.h"
-#include "unit.h"
+#include "../utils/unit.h"
 #include <assert.h>
 #include <limits.h>
 #include <string.h>
+#include <stdio.h>
 
 static void
 test_open(void)
