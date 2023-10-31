@@ -187,8 +187,8 @@ void ufs_delete_file(struct file* file_to_delete)
 
 struct filedesc {
 	struct file *file;
-	struct block* read_block;
-	int read_block_offset;
+	struct block* current_block;
+	int current_block_offset;
 };
 
 /**
@@ -211,8 +211,8 @@ ufs_create_file_descriptor(struct file *current_file)
         return -1;
     }
 	file_descriptor->file = current_file;
-	file_descriptor->read_block = current_file->block_list;
-	file_descriptor->read_block_offset = 0;
+	file_descriptor->current_block = current_file->block_list;
+	file_descriptor->current_block_offset = 0;
 
 	current_file->refs++;
 
@@ -266,26 +266,19 @@ ufs_delete_file_descriptor(int fd)
 int
 ufs_open(const char *filename, int flags)
 {
-	printf("1\n");
 	struct file* current_file = ufs_find_file(filename);
-	printf("2\n");
 	if (current_file == NULL)
 	{
-		printf("3\n");
 		if (flags == UFS_CREATE)
 		{
-			printf("4\n");
 			current_file = ufs_create_file(filename);
 		}
 		else
 		{
-			printf("5\n");
 			ufs_error_code = UFS_ERR_NO_FILE;
-			printf("6\n");
 			return -1;
 		}
 	}
-	printf("6\n");
 	return ufs_create_file_descriptor(current_file);
 }
 
@@ -300,29 +293,28 @@ ufs_write(int fd, const char *buf, size_t size)
 
 	size_t remain_size = size;
 	const char* remain_buf = buf;
-	struct block* last_block = file_desc->file->last_block;
+	struct block* current_block = file_desc->current_block;
 	while (remain_size != 0)
 	{
-		size_t write_size = BLOCK_SIZE - last_block->occupied;
+		size_t write_size = BLOCK_SIZE - file_desc->current_block_offset;
 		if (remain_size < write_size)
 		{
 			write_size = remain_size;
 		}
-		printf("string %s\n", &last_block->memory[last_block->occupied]);
-		printf("remain_buf %s\n", remain_buf);
-		printf("write_size %lu\n", write_size);
-		memcpy(&last_block->memory[last_block->occupied], remain_buf, write_size);
-		printf("string %s\n", &last_block->memory[last_block->occupied]);
-		printf("remain_buf %s\n", remain_buf);
-		printf("write_size %lu\n", write_size);
+		memcpy(&current_block->memory[file_desc->current_block_offset], remain_buf, write_size);
+
 		remain_buf += write_size;
 		remain_size -= write_size;
 
-		last_block->occupied += write_size;
-		if (remain_size != 0 || last_block->occupied == BLOCK_SIZE)
+		
+		if (file_desc->current_block_offset + write_size - current_block->occupied > 0) {
+			current_block->occupied += file_desc->current_block_offset + write_size - current_block->occupied;
+		}
+		file_desc->current_block_offset += write_size;
+		if (remain_size != 0 || file_desc->current_block_offset == BLOCK_SIZE)
 		{
-			last_block = ufs_add_block(last_block);
-			if (last_block == NULL)
+			current_block = ufs_add_block(current_block);
+			if (current_block == NULL)
 			{
 				return -1;
 			}
@@ -344,19 +336,22 @@ ufs_read(int fd, char *buf, size_t size)
 	size_t already_readed = 0;
 	char* current_buf = buf;
 
-	while (already_readed != size && file_desc->read_block != NULL)
+	while (already_readed != size && file_desc->current_block != NULL)
 	{
-		size_t availble_to_read_size = file_desc->read_block->occupied - file_desc->read_block_offset;
-		memcpy(current_buf, &file_desc->read_block->memory[file_desc->read_block_offset], availble_to_read_size);
+		size_t availble_to_read_size = file_desc->current_block->occupied - file_desc->current_block_offset;
+		if (availble_to_read_size > size){
+			availble_to_read_size = size;
+		}
+		memcpy(current_buf, &file_desc->current_block->memory[file_desc->current_block_offset], availble_to_read_size);
 
 		already_readed += availble_to_read_size;
 		current_buf += availble_to_read_size;
-		file_desc->read_block_offset += availble_to_read_size;
+		file_desc->current_block_offset += availble_to_read_size;
 
-		if (file_desc->read_block_offset == file_desc->read_block->occupied)
+		if (file_desc->current_block_offset == file_desc->current_block->occupied)
 		{
-			file_desc->read_block_offset = 0;
-			file_desc->read_block = file_desc->read_block->next;
+			file_desc->current_block_offset = 0;
+			file_desc->current_block = file_desc->current_block->next;
 		}
 	}
 	return already_readed;

@@ -122,7 +122,7 @@ test_io(void)
 	unit_check(ufs_write(fd1, "123###", 3) == 3,
 		"data (only needed) is written");
 	unit_check(ufs_read(fd2, buffer, sizeof(buffer)) == 3, "data is read");
-	printf("buffer %s\n", buffer);
+	
 	unit_check(memcmp(buffer, "123", 3) == 0, "the same data");
 
 	ufs_close(fd1);
