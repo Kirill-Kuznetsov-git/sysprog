@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-
+#include <stdio.h>
 enum {
 	BLOCK_SIZE = 512,
 	MAX_FILE_SIZE = 1024 * 1024 * 100,
@@ -108,10 +108,11 @@ ufs_find_file(const char *filename)
 
 	while (current_file != NULL)
 	{
-		if (current_file->name == filename && !current_file->marked_as_deleted)
+		if (strcmp(current_file->name, filename) == 0 && !current_file->marked_as_deleted)
 		{
 			return current_file;
 		}
+		current_file = current_file->next;
 	}
 	return NULL;
 }
@@ -186,7 +187,8 @@ void ufs_delete_file(struct file* file_to_delete)
 
 struct filedesc {
 	struct file *file;
-	/* PUT HERE OTHER MEMBERS */
+	struct block* read_block;
+	int read_block_offset;
 };
 
 /**
@@ -209,6 +211,8 @@ ufs_create_file_descriptor(struct file *current_file)
         return -1;
     }
 	file_descriptor->file = current_file;
+	file_descriptor->read_block = current_file->block_list;
+	file_descriptor->read_block_offset = 0;
 
 	current_file->refs++;
 
@@ -262,27 +266,36 @@ ufs_delete_file_descriptor(int fd)
 int
 ufs_open(const char *filename, int flags)
 {
+	printf("1\n");
 	struct file* current_file = ufs_find_file(filename);
-
+	printf("2\n");
 	if (current_file == NULL)
 	{
+		printf("3\n");
 		if (flags == UFS_CREATE)
 		{
+			printf("4\n");
 			current_file = ufs_create_file(filename);
 		}
 		else
 		{
+			printf("5\n");
 			ufs_error_code = UFS_ERR_NO_FILE;
+			printf("6\n");
 			return -1;
 		}
 	}
-
+	printf("6\n");
 	return ufs_create_file_descriptor(current_file);
 }
 
 ssize_t
 ufs_write(int fd, const char *buf, size_t size)
 {
+	if (fd <= 0 || fd > file_descriptors_count) {
+		ufs_error_code = UFS_ERR_NO_FILE;
+		return -1;
+	}
 	struct filedesc* file_desc = file_descriptors[fd - 1];
 
 	size_t remain_size = size;
@@ -293,10 +306,15 @@ ufs_write(int fd, const char *buf, size_t size)
 		size_t write_size = BLOCK_SIZE - last_block->occupied;
 		if (remain_size < write_size)
 		{
-			write_size = remain_size < write_size;
+			write_size = remain_size;
 		}
-		memcpy(&last_block[last_block->occupied].memory, remain_buf, write_size);
-
+		printf("string %s\n", &last_block->memory[last_block->occupied]);
+		printf("remain_buf %s\n", remain_buf);
+		printf("write_size %lu\n", write_size);
+		memcpy(&last_block->memory[last_block->occupied], remain_buf, write_size);
+		printf("string %s\n", &last_block->memory[last_block->occupied]);
+		printf("remain_buf %s\n", remain_buf);
+		printf("write_size %lu\n", write_size);
 		remain_buf += write_size;
 		remain_size -= write_size;
 
@@ -316,17 +334,42 @@ ufs_write(int fd, const char *buf, size_t size)
 ssize_t
 ufs_read(int fd, char *buf, size_t size)
 {
-	/* IMPLEMENT THIS FUNCTION */
-	(void)fd;
-	(void)buf;
-	(void)size;
-	ufs_error_code = UFS_ERR_NOT_IMPLEMENTED;
-	return -1;
+	if (fd <= 0 || fd > file_descriptors_count)
+	{
+		ufs_error_code = UFS_ERR_NO_FILE;
+		return -1;
+	}
+
+	struct filedesc* file_desc = file_descriptors[fd - 1];
+	size_t already_readed = 0;
+	char* current_buf = buf;
+
+	while (already_readed != size && file_desc->read_block != NULL)
+	{
+		size_t availble_to_read_size = file_desc->read_block->occupied - file_desc->read_block_offset;
+		memcpy(current_buf, &file_desc->read_block->memory[file_desc->read_block_offset], availble_to_read_size);
+
+		already_readed += availble_to_read_size;
+		current_buf += availble_to_read_size;
+		file_desc->read_block_offset += availble_to_read_size;
+
+		if (file_desc->read_block_offset == file_desc->read_block->occupied)
+		{
+			file_desc->read_block_offset = 0;
+			file_desc->read_block = file_desc->read_block->next;
+		}
+	}
+	return already_readed;
 }
 
 int
 ufs_close(int fd)
 {
+	if (fd <= 0 || fd > file_descriptors_count)
+	{
+		ufs_error_code = UFS_ERR_NO_FILE;
+		return -1;
+	}
 	struct file* current_file = ufs_delete_file_descriptor(fd);
 
 	if (current_file->refs == 0 &&  current_file->marked_as_deleted)

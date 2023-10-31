@@ -17,7 +17,6 @@ test_open(void)
 	fd = ufs_open("file", UFS_CREATE);
 	unit_check(fd != -1, "use 'create' now");
 	unit_check(ufs_close(fd) == 0, "close immediately");
-
 	fd = ufs_open("file", 0);
 	unit_check(fd != -1, "now open works without 'create'");
 	unit_fail_if(ufs_close(fd) != 0);
@@ -123,6 +122,7 @@ test_io(void)
 	unit_check(ufs_write(fd1, "123###", 3) == 3,
 		"data (only needed) is written");
 	unit_check(ufs_read(fd2, buffer, sizeof(buffer)) == 3, "data is read");
+	printf("buffer %s\n", buffer);
 	unit_check(memcmp(buffer, "123", 3) == 0, "the same data");
 
 	ufs_close(fd1);
