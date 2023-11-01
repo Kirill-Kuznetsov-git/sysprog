@@ -129,6 +129,7 @@ ufs_create_file(const char* filename)
     }
 	new_file->refs = 0;
 	new_file->occupied = 0;
+	new_file->marked_as_deleted = false;
 
 	new_file->prev = last_file;
 	new_file->next = NULL;
@@ -190,6 +191,7 @@ void ufs_delete_file(struct file* file_to_delete)
 struct filedesc {
 	struct file *file;
 	struct block* current_block;
+	enum open_flags mode;
 	int current_block_offset;
 };
 
@@ -204,7 +206,7 @@ static int file_descriptors_count = 0;
 static int file_descriptors_capacity = 0;
 
 int
-ufs_create_file_descriptor(struct file *current_file)
+ufs_create_file_descriptor(struct file *current_file, enum open_flags fd_flag)
 {
 	struct filedesc* file_descriptor = (struct filedesc*)malloc(sizeof(struct filedesc));
 	if (file_descriptor == NULL)
@@ -214,6 +216,7 @@ ufs_create_file_descriptor(struct file *current_file)
     }
 	file_descriptor->file = current_file;
 	file_descriptor->current_block = current_file->block_list;
+	file_descriptor->mode = fd_flag;
 	file_descriptor->current_block_offset = 0;
 
 	current_file->refs++;
@@ -282,6 +285,11 @@ int
 ufs_open(const char *filename, int flags)
 {
 	struct file* current_file = ufs_find_file(filename);
+	enum open_flags fd_flag = flags;
+	if (!(flags == UFS_READ_ONLY || flags == UFS_WRITE_ONLY))
+	{
+		fd_flag = UFS_READ_WRITE;
+	}
 	if (current_file == NULL)
 	{
 		if (flags == UFS_CREATE)
@@ -294,7 +302,7 @@ ufs_open(const char *filename, int flags)
 			return -1;
 		}
 	}
-	return ufs_create_file_descriptor(current_file);
+	return ufs_create_file_descriptor(current_file, fd_flag);
 }
 
 ssize_t
@@ -306,6 +314,11 @@ ufs_write(int fd, const char *buf, size_t size)
 		return -1;
 	}
 	struct filedesc* file_desc = file_descriptors[fd - 1];
+	if (file_desc->mode == UFS_READ_ONLY)
+	{
+		ufs_error_code = UFS_ERR_NO_PERMISSION;
+		return -1;
+	}
 	if (size > MAX_FILE_SIZE - file_desc->file->occupied)
 	{
 		ufs_error_code = UFS_ERR_NO_MEM;
@@ -368,6 +381,11 @@ ufs_read(int fd, char *buf, size_t size)
 	}
 
 	struct filedesc* file_desc = file_descriptors[fd - 1];
+	if (file_desc->mode == UFS_WRITE_ONLY)
+	{
+		ufs_error_code = UFS_ERR_NO_PERMISSION;
+		return -1;
+	}
 	size_t already_readed = 0;
 	char* current_buf = buf;
 	while (already_readed != size && file_desc->current_block != NULL)
