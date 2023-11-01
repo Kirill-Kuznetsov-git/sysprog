@@ -62,7 +62,7 @@ ufs_delete_blocks(struct block *start_block)
 	struct block *next_block = NULL;
 	while (current_block != NULL)
 	{
-		next_block = start_block->next;
+		next_block = current_block->next;
 		free(current_block->memory);
 		free(current_block);
 		current_block = next_block;
@@ -335,11 +335,12 @@ ufs_write(int fd, const char *buf, size_t size)
 		}
 
 		file_desc->current_block_offset += write_size;
-		if (remain_size != 0 || file_desc->current_block_offset == BLOCK_SIZE)
+		if (file_desc->current_block_offset == BLOCK_SIZE)
 		{
 			if (current_block->next == NULL)
 			{
 				current_block = ufs_add_block(current_block);
+				file_desc->file->last_block = current_block;
 				if (current_block == NULL)
 				{
 					return -1;
@@ -408,7 +409,7 @@ ufs_close(int fd)
 	}
 	struct file* current_file = ufs_delete_file_descriptor(fd);
 
-	if (current_file->refs == 0 &&  current_file->marked_as_deleted)
+	if (current_file->refs == 0 && current_file->marked_as_deleted)
 	{
 		ufs_delete_file(current_file);
 	}
