@@ -85,6 +85,7 @@ struct file {
 	struct file *next;
 	struct file *prev;
 
+	size_t occupied;
 	bool marked_as_deleted;
 	/* PUT HERE OTHER MEMBERS */
 };
@@ -127,6 +128,7 @@ ufs_create_file(const char* filename)
         return NULL;
     }
 	new_file->refs = 0;
+	new_file->occupied = 0;
 
 	new_file->prev = last_file;
 	new_file->next = NULL;
@@ -227,7 +229,7 @@ ufs_create_file_descriptor(struct file *current_file)
 		}
 		file_descriptors_capacity = 20;
 	}
-	else if (file_descriptors_capacity == file_descriptors_count)
+	if (file_descriptors_count == file_descriptors_capacity)
 	{
 		struct filedesc **new_file_descriptors = (struct filedesc **)malloc(sizeof(struct filedesc*) * file_descriptors_capacity * 2);
 		if (new_file_descriptors == NULL)
@@ -240,11 +242,24 @@ ufs_create_file_descriptor(struct file *current_file)
 		memcpy(new_file_descriptors, file_descriptors, sizeof(struct filedesc*) * file_descriptors_count);
 		free(file_descriptors);
 		file_descriptors = new_file_descriptors;
-	}
-	file_descriptors[file_descriptors_count] = file_descriptor;
-	file_descriptors_count++;
 
-	return file_descriptors_count;
+		
+		file_descriptors[file_descriptors_count] = file_descriptor;
+		file_descriptors_count++;
+		return file_descriptors_count;
+	}
+
+	for (int i = 0; i < file_descriptors_capacity; i++)
+	{
+		if (file_descriptors[i] == NULL)
+		{
+			file_descriptors[i] = file_descriptor;
+			file_descriptors_count++;
+			return i + 1;
+		}
+	}
+	
+	return -1;
 }
 
 struct file*
@@ -285,15 +300,21 @@ ufs_open(const char *filename, int flags)
 ssize_t
 ufs_write(int fd, const char *buf, size_t size)
 {
-	if (fd <= 0 || fd > file_descriptors_count) {
+	if (fd <= 0 || fd > file_descriptors_capacity || file_descriptors[fd - 1] == NULL)
+	{
 		ufs_error_code = UFS_ERR_NO_FILE;
 		return -1;
 	}
 	struct filedesc* file_desc = file_descriptors[fd - 1];
-
+	if (size > MAX_FILE_SIZE - file_desc->file->occupied)
+	{
+		ufs_error_code = UFS_ERR_NO_MEM;
+		return -1;
+	}
 	size_t remain_size = size;
 	const char* remain_buf = buf;
 	struct block* current_block = file_desc->current_block;
+
 	while (remain_size != 0)
 	{
 		size_t write_size = BLOCK_SIZE - file_desc->current_block_offset;
@@ -301,23 +322,36 @@ ufs_write(int fd, const char *buf, size_t size)
 		{
 			write_size = remain_size;
 		}
+
 		memcpy(&current_block->memory[file_desc->current_block_offset], remain_buf, write_size);
 
+		file_desc->file->occupied += write_size;
 		remain_buf += write_size;
 		remain_size -= write_size;
 
-		
-		if (file_desc->current_block_offset + write_size - current_block->occupied > 0) {
+		if (file_desc->current_block_offset + (int)write_size - current_block->occupied > 0)
+		{
 			current_block->occupied += file_desc->current_block_offset + write_size - current_block->occupied;
 		}
+
 		file_desc->current_block_offset += write_size;
 		if (remain_size != 0 || file_desc->current_block_offset == BLOCK_SIZE)
 		{
-			current_block = ufs_add_block(current_block);
-			if (current_block == NULL)
+			if (current_block->next == NULL)
 			{
-				return -1;
+				current_block = ufs_add_block(current_block);
+				if (current_block == NULL)
+				{
+					return -1;
+				}			
 			}
+			else
+			{
+				current_block = current_block->next;
+			}
+			file_desc->current_block = current_block;
+			file_desc->current_block_offset = 0;
+
 		}
 	}
 	return size;
@@ -326,7 +360,7 @@ ufs_write(int fd, const char *buf, size_t size)
 ssize_t
 ufs_read(int fd, char *buf, size_t size)
 {
-	if (fd <= 0 || fd > file_descriptors_count)
+	if (fd <= 0 || fd > file_descriptors_capacity || file_descriptors[fd - 1] == NULL)
 	{
 		ufs_error_code = UFS_ERR_NO_FILE;
 		return -1;
@@ -335,7 +369,6 @@ ufs_read(int fd, char *buf, size_t size)
 	struct filedesc* file_desc = file_descriptors[fd - 1];
 	size_t already_readed = 0;
 	char* current_buf = buf;
-
 	while (already_readed != size && file_desc->current_block != NULL)
 	{
 		size_t availble_to_read_size = file_desc->current_block->occupied - file_desc->current_block_offset;
@@ -350,8 +383,15 @@ ufs_read(int fd, char *buf, size_t size)
 
 		if (file_desc->current_block_offset == file_desc->current_block->occupied)
 		{
-			file_desc->current_block_offset = 0;
-			file_desc->current_block = file_desc->current_block->next;
+			if (file_desc->current_block->occupied == BLOCK_SIZE && file_desc->current_block->next != NULL)
+			{
+				file_desc->current_block_offset = 0;
+				file_desc->current_block = file_desc->current_block->next;
+			}
+			else
+			{
+				return already_readed;
+			}
 		}
 	}
 	return already_readed;
@@ -360,7 +400,8 @@ ufs_read(int fd, char *buf, size_t size)
 int
 ufs_close(int fd)
 {
-	if (fd <= 0 || fd > file_descriptors_count)
+	
+	if (fd <= 0 || fd > file_descriptors_capacity || file_descriptors[fd - 1] == NULL)
 	{
 		ufs_error_code = UFS_ERR_NO_FILE;
 		return -1;
