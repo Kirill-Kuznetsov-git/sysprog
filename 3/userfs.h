@@ -11,19 +11,7 @@
 
 
 #define NEED_OPEN_FLAGS
-/**
- * Here you should specify which features do you want to implement
- * via macros: NEED_OPEN_FLAGS and NEED_RESIZE. If you want to
- * allow advanced flags, do this here:
- *
- *
- * To allow resize() functions define this:
- *
- *     #define NEED_RESIZE
- *
- * It is important to define these macros here, in the header,
- * because it is used by tests.
- */
+#define NEED_RESIZE
 
 /**
  * Flags for ufs_open call.
