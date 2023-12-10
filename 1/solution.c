@@ -100,6 +100,7 @@ struct number_array* read_numbers_from_file(char* file_name) {
       	numbers[size] = number;
       	size++;
     }
+	fclose(file);
 	struct number_array* numb_arr = (struct number_array*)malloc(sizeof(struct number_array));
 	numb_arr->number_size = size;
 	numb_arr->numbers = numbers;
@@ -252,6 +253,7 @@ main(int argc, char **argv)
 	struct timespec end_merge;
 	clock_gettime(CLOCK_MONOTONIC, &end_merge);
 	printf("Merge finished. Execution time in sec %lf\n", (double)(end_merge.tv_nsec - start_merge.tv_nsec) / 1000000000);
+	fclose(output);
 
     free(current_pos);
 	curr_file = files;
