@@ -1,7 +1,9 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>
 #include "libcoro.h"
 
 /**
@@ -33,8 +35,10 @@ struct my_context {
 	char *name;
 	struct file_node *files;
 	int file_names_size;
+	int number_yields;
     long work_time_nanosec;
-    struct timespec last_yield;
+    struct timespec start_execution;
+	long full_execution_time_nanosec;
 };
 
 static struct my_context *
@@ -45,7 +49,9 @@ my_context_new(const char *name, struct file_node *files, int files_size, long w
 	ctx->files = files;
 	ctx->file_names_size = files_size;
     ctx->work_time_nanosec = work_time_nanosec;
-    clock_gettime(CLOCK_MONOTONIC, &ctx->last_yield);
+	ctx->full_execution_time_nanosec = 0;
+	ctx->number_yields = 0;
+    clock_gettime(CLOCK_MONOTONIC, &ctx->start_execution);
 	return ctx;
 }
 
@@ -64,9 +70,12 @@ void quick_sort(int first, int last, struct my_context* ctx, int* numbers) {
         right--;
         struct timespec current_time;
         clock_gettime(CLOCK_MONOTONIC, &current_time);
-        if (current_time.tv_nsec - ctx->last_yield.tv_nsec >= ctx->work_time_nanosec) {
-          clock_gettime(CLOCK_MONOTONIC, &ctx->last_yield);
-          coro_yield();
+        if (current_time.tv_nsec - ctx->start_execution.tv_nsec >= ctx->work_time_nanosec) {
+			ctx->full_execution_time_nanosec += current_time.tv_nsec - ctx->start_execution.tv_nsec;
+			ctx->number_yields++;
+          	coro_yield();
+			clock_gettime(CLOCK_MONOTONIC, &ctx->start_execution);
+
         }
       }
     } while (left <= right);
@@ -76,17 +85,17 @@ void quick_sort(int first, int last, struct my_context* ctx, int* numbers) {
 }
 
 struct number_array* read_numbers_from_file(char* file_name) {
-	printf("Start read numbers from %s\n", file_name);
+	// printf("Start read numbers from %s\n", file_name);
     FILE* file = fopen(file_name, "r");
     int* numbers = (int *)calloc(10, sizeof(int));
     int number;
     int cap = 10;
     int size = 0;
 
-    while (fscanf(file, "%d", &number) > 0) {
+    while (fscanf(file, "%d ", &number) > 0) {
 		if (cap == size) {
 			cap *= 2;
-			numbers = realloc(numbers, cap * sizeof(int));
+			numbers = realloc(numbers, cap * sizeof(int));			
       	}
       	numbers[size] = number;
       	size++;
@@ -94,8 +103,25 @@ struct number_array* read_numbers_from_file(char* file_name) {
 	struct number_array* numb_arr = (struct number_array*)malloc(sizeof(struct number_array));
 	numb_arr->number_size = size;
 	numb_arr->numbers = numbers;
-	printf("End read numbers from %s\n", file_name);
+	// printf("End read numbers from %s\n", file_name);
 	return numb_arr;
+}
+
+bool is_array_sorted(struct number_array* number_array) {
+	int curr_number = -1;
+	for (int i = 0; i < number_array->number_size; i++) {
+		if (number_array->numbers[i] < curr_number) {
+			printf("%d   %d\n", number_array->numbers[i], curr_number);
+			return false;
+		}
+		curr_number = number_array->numbers[i];
+	}
+	return true;
+}
+
+bool is_file_sorted(char* filename) {
+	struct number_array* number_array = read_numbers_from_file(filename);
+	return is_array_sorted(number_array);
 }
 
 static void
@@ -109,22 +135,21 @@ static void*
 coroutine_func_f(void *context)
 {
 	struct my_context *ctx = context;
-	printf("%s started\n", ctx->name);
+	// printf("%s started\n", ctx->name);
 	struct file_node* curr_file = ctx->files;
 	while (curr_file != NULL) {
 		if (curr_file->status == NOT_SORTED) {
 			curr_file->status = IN_PROGRESS;
 			struct number_array* number_array = read_numbers_from_file(curr_file->file_name);
-			printf("Start sorting file %s\n", curr_file->file_name);
+			// printf("Start sorting file %s\n", curr_file->file_name);
 			quick_sort(0, number_array->number_size - 1, ctx, number_array->numbers);
-			printf("End sorting file %s\n", curr_file->file_name);
+			// printf("End sorting file %s\n", curr_file->file_name);
 			curr_file->sorted_array = number_array;
 			curr_file->status = SORTED;
 		}
 		curr_file = curr_file->next;
 	}
-
-	printf("%s finished\n", ctx->name);
+	printf("%s finished. Number of yield %d. Execution time in sec %lf\n", ctx->name, ctx->number_yields, (double)ctx->full_execution_time_nanosec / 1000000000);
 	my_context_delete(ctx);
 	return NULL;
 }
@@ -132,6 +157,9 @@ coroutine_func_f(void *context)
 int
 main(int argc, char **argv)
 {
+	struct timespec start_time;
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
+
 	int number_coro = -1;
 	int quantum_coro_nanosec = 10000000;
 	char** file_names = malloc(sizeof(char*) * argc);
@@ -176,7 +204,7 @@ main(int argc, char **argv)
 		sprintf(name, "coro_%d", i);
 		coro_new(coroutine_func_f, my_context_new(name, files, file_names_size, quantum_coro_nanosec));
 	}
-	printf("Corotines created\n");
+	// printf("Corotines created\n");
 
 	struct coro *c;
 	while ((c = coro_sched_wait()) != NULL) {
@@ -193,28 +221,38 @@ main(int argc, char **argv)
     int min_number_index;
     int min_number;
 	int index = 0;
+
+	struct timespec start_merge;
+	clock_gettime(CLOCK_MONOTONIC, &start_merge);
     while(true) {
         min_number_index = -1;
         min_number = INT32_MAX;
 		curr_file = files;
 		index = 0;
         while (curr_file != NULL) {
-            if (current_pos[index] == curr_file->sorted_array->number_size) {
+			if (current_pos[index] >= curr_file->sorted_array->number_size) {
 				curr_file = curr_file->next;
+				index++;
 				continue;
             }
             if (curr_file->sorted_array->numbers[current_pos[index]] < min_number) {
             	min_number_index = index;
             	min_number = curr_file->sorted_array->numbers[current_pos[index]];
             }
+			index++;
 			curr_file = curr_file->next;
         }
+
         if (min_number_index == -1) {
         	break;
         }
-        fprintf(output, "%d ", min_number);
+		fprintf(output, "%d ", min_number);
         current_pos[min_number_index]++;
     }
+	struct timespec end_merge;
+	clock_gettime(CLOCK_MONOTONIC, &end_merge);
+	printf("Merge finished. Execution time in sec %lf\n", (double)(end_merge.tv_nsec - start_merge.tv_nsec) / 1000000000);
+
     free(current_pos);
 	curr_file = files;
 	while (files != NULL) {
@@ -225,5 +263,10 @@ main(int argc, char **argv)
 		files = curr_file;
 	}
     free(file_names);
+
+	struct timespec end_time;
+	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	printf("Program finished. Execution time in sec %lf\n", (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000000);
+
 	return 0;
 }
