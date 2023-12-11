@@ -137,13 +137,13 @@ void* start_thread_routine_func(void* arg) {
 		// Unlock everybody who waiting this task
 		pthread_cond_broadcast(&task->cond);
 		
-        if (task->detached) {
-			pthread_mutex_unlock(&task->mutex);
+		pthread_mutex_unlock(&task->mutex);
+        if (task->detached) {	
             pthread_mutex_destroy(&task->mutex);
             pthread_cond_destroy(&task->cond);
             free(task);
         }
-		pthread_mutex_unlock(&task->mutex);
+		
 	}
 	return 0;
 }
@@ -198,7 +198,7 @@ thread_task_new(struct thread_task **task, thread_task_f function, void *arg)
 bool
 thread_task_is_finished(const struct thread_task *task)
 {
-	return task->status == DONE && task->status == JOINED;
+	return task->status == DONE || task->status == JOINED;
 }
 
 bool
