@@ -136,6 +136,13 @@ void* start_thread_routine_func(void* arg) {
 		task->status = DONE;
 		// Unlock everybody who waiting this task
 		pthread_cond_broadcast(&task->cond);
+		
+        if (task->detached) {
+			pthread_mutex_unlock(&task->mutex);
+            pthread_mutex_destroy(&task->mutex);
+            pthread_cond_destroy(&task->cond);
+            free(task);
+        }
 		pthread_mutex_unlock(&task->mutex);
 	}
 	return 0;
@@ -176,6 +183,7 @@ int
 thread_task_new(struct thread_task **task, thread_task_f function, void *arg)
 {
 	struct thread_task* new_task = (struct thread_task*)malloc(sizeof(struct thread_task));
+	new_task->status = CREATED;
 	new_task->function = function;
 	new_task->arg = arg;
 	new_task->detached = false;
