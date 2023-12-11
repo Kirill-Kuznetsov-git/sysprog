@@ -74,12 +74,12 @@ thread_pool_delete(struct thread_pool *pool)
 	pool->is_deleted = true;
 	// Wake up all threads to delete them
 	pthread_cond_broadcast(&pool->cond);
+	pthread_mutex_unlock(&pool->mutex);
 
 	for (int i = 0; i < pool->created_threads_number; i++) {
 		pthread_join(pool->threads[i], NULL);
 	}
 
-	pthread_mutex_unlock(&pool->mutex);
 	free(pool->threads);
 	pthread_mutex_destroy(&pool->mutex);
 	pthread_cond_destroy(&pool->cond);
@@ -103,15 +103,9 @@ void* start_thread_routine_func(void* arg) {
         }
 
 		struct thread_task* task = pool->task_queue[pool->task_queue_read_pos];
-		while (task->status != QUEUED) {
-			pool->task_queue_read_pos++;
-			task = pool->task_queue[pool->task_queue_read_pos];
-			if (task == NULL) {
-				continue;
-			}
-		}
-		pool->number_thread_busy++;
+		pool->task_queue[pool->task_queue_read_pos] = NULL;
 		pool->task_queue_read_pos++;
+		pool->number_thread_busy++;
 		pool->task_waiting--;
 
 		if (pool->task_queue_read_pos == TPOOL_MAX_TASKS) {
@@ -145,17 +139,18 @@ thread_pool_push_task(struct thread_pool *pool, struct thread_task *task)
 {
 	printf("%p\n", &pool->mutex);
 	printf("qwe\n");
+	pthread_mutex_lock(&pool->mutex);
+	if (pool->task_waiting + pool->number_thread_busy >= TPOOL_MAX_TASKS) {
+        pthread_mutex_unlock(&pool->mutex);
+		return TPOOL_ERR_TOO_MANY_TASKS;
+	}
 	pthread_mutex_lock(&task->mutex);
 	printf("qwe\n");
-	pthread_mutex_lock(&pool->mutex);
+	
 	printf("got mutexs\n");
 	task->status = QUEUED;
-	while (pool->task_queue[pool->task_queue_write_pos] != NULL) {
-		pool->task_queue_write_pos++;
-		if (pool->task_queue_write_pos == TPOOL_MAX_TASKS) {
-			pool->task_queue_write_pos = 0;
-		}
-	}
+	pthread_mutex_unlock(&task->mutex);
+	
 	pool->task_queue[pool->task_queue_write_pos] = task;
 	pool->task_waiting++;
 	pool->task_queue_write_pos++;
@@ -170,7 +165,7 @@ thread_pool_push_task(struct thread_pool *pool, struct thread_task *task)
 		pool->created_threads_number++;
 	}
 	pthread_mutex_unlock(&pool->mutex);
-	pthread_mutex_unlock(&task->mutex);
+	
 	return 0;
 }
 
