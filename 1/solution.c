@@ -71,7 +71,7 @@ void quick_sort(int first, int last, struct my_context* ctx, int* numbers) {
         struct timespec current_time;
         clock_gettime(CLOCK_MONOTONIC, &current_time);
         if (current_time.tv_nsec - ctx->start_execution.tv_nsec >= ctx->work_time_nanosec) {
-			ctx->full_execution_time_nanosec += current_time.tv_nsec - ctx->start_execution.tv_nsec;
+			ctx->full_execution_time_nanosec += current_time.tv_nsec - ctx->start_execution.tv_nsec + (current_time.tv_sec - ctx->start_execution.tv_sec) * 1000000000;
 			ctx->number_yields++;
           	coro_yield();
 			clock_gettime(CLOCK_MONOTONIC, &ctx->start_execution);
@@ -150,6 +150,9 @@ coroutine_func_f(void *context)
 		}
 		curr_file = curr_file->next;
 	}
+	struct timespec current_time;
+    clock_gettime(CLOCK_MONOTONIC, &current_time);
+	ctx->full_execution_time_nanosec += current_time.tv_nsec - ctx->start_execution.tv_nsec + (current_time.tv_sec - ctx->start_execution.tv_sec) * 1000000000;
 	printf("%s finished. Number of yield %d. Execution time in sec %lf\n", ctx->name, ctx->number_yields, (double)ctx->full_execution_time_nanosec / 1000000000);
 	my_context_delete(ctx);
 	return NULL;

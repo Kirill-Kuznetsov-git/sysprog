@@ -15,7 +15,7 @@ long double benchmark() {
     pthread_create(&thread, NULL, start_thread_routine_func, NULL);
     pthread_join(thread, NULL);
     clock_gettime(CLOCK_MONOTONIC, &end_time);
-    return (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000;
+    return (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000 + (double)((end_time.tv_sec - start_time.tv_sec) * 1000);
 }
 
 int main() {

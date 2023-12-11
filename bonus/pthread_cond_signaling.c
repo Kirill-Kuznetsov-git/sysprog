@@ -13,7 +13,7 @@ enum Mode {
 struct thread_task {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
-    long double result_msec;
+    long result_nsec;
     int wait_threads_gotted_mutex;
     int n_signals;
 };
@@ -30,7 +30,7 @@ void* signal_thread_routine_func(void* arg) {
     }
     clock_gettime(CLOCK_MONOTONIC, &end_time);
     pthread_mutex_unlock(&thread_task->mutex);
-    thread_task->result_msec = (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000;
+    thread_task->result_nsec = (end_time.tv_nsec - start_time.tv_nsec) + (end_time.tv_sec - start_time.tv_sec) * 1000000000;
     return NULL;
 }
 
@@ -45,7 +45,7 @@ void* broadcast_thread_routine_func(void* arg) {
     }
     clock_gettime(CLOCK_MONOTONIC, &end_time);
     pthread_mutex_unlock(&thread_task->mutex);
-    thread_task->result_msec = (double)(end_time.tv_nsec - start_time.tv_nsec) / 1000000;
+    thread_task->result_nsec = (end_time.tv_nsec - start_time.tv_nsec) + (end_time.tv_sec - start_time.tv_sec) * 1000000000;
     return NULL;
 }
 
@@ -68,7 +68,7 @@ void* wait_thread_routine_func(void* arg) {
     return NULL;
 }
 
-long double benchmark(int number_wait_threads, struct thread_task* thread_task, enum Mode mode) {
+long benchmark(int number_wait_threads, struct thread_task* thread_task, enum Mode mode) {
     pthread_t signal_thread;
     pthread_t* wait_threads = (pthread_t*)malloc(sizeof(pthread_t) * number_wait_threads);
     
@@ -86,31 +86,31 @@ long double benchmark(int number_wait_threads, struct thread_task* thread_task, 
     }
     pthread_join(signal_thread, NULL);
 
-    return thread_task->result_msec;
+    return thread_task->result_nsec;
 }
 
 void printBenchmarkResult(int number_wait_pthreads, enum Mode mode, struct thread_task* new_task) {
-    long double measure = benchmark(number_wait_pthreads, new_task, mode);
+    long measure = benchmark(number_wait_pthreads, new_task, mode);
     printf("%d %s with %d wait threads take %Lf msec.\n",
-    new_task->n_signals, mode == BROADCAST ? "broadcast" : "signal", number_wait_pthreads, measure);
+    new_task->n_signals, mode == BROADCAST ? "broadcast" : "signal", number_wait_pthreads, (long double)measure / 1000000);
 }
 
 int main() {
     struct thread_task* new_task = (struct thread_task*)malloc(sizeof(struct thread_task));
     new_task->n_signals = 1000000;
     new_task->wait_threads_gotted_mutex = 0;
-    new_task->result_msec = 0;
+    new_task->result_nsec = 0;
     pthread_mutex_init(&new_task->mutex, NULL);
     pthread_cond_init(&new_task->cond, NULL);
 
     printBenchmarkResult(1, SIGNAL, new_task);
     new_task->wait_threads_gotted_mutex = 0;
-    new_task->result_msec = 0;
+    new_task->result_nsec = 0;
     printBenchmarkResult(1, BROADCAST, new_task);
     new_task->wait_threads_gotted_mutex = 0;
-    new_task->result_msec = 0;
+    new_task->result_nsec = 0;
     printBenchmarkResult(3, SIGNAL, new_task);
     new_task->wait_threads_gotted_mutex = 0;
-    new_task->result_msec = 0;
+    new_task->result_nsec = 0;
     printBenchmarkResult(3, BROADCAST, new_task);
 }
