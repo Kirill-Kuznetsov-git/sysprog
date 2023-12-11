@@ -18,6 +18,7 @@ struct thread_task {
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 	enum task_status status;
+	bool detached;
 };
 
 
@@ -177,6 +178,7 @@ thread_task_new(struct thread_task **task, thread_task_f function, void *arg)
 	struct thread_task* new_task = (struct thread_task*)malloc(sizeof(struct thread_task));
 	new_task->function = function;
 	new_task->arg = arg;
+	new_task->detached = false;
 
     pthread_mutex_init(&new_task->mutex, NULL);
     pthread_cond_init(&new_task->cond, NULL);
@@ -233,7 +235,7 @@ thread_task_delete(struct thread_task *task)
 {
     pthread_mutex_lock(&task->mutex);
 
-    if (task->status == CREATED || task->status == JOINED) {
+    if (task->status == CREATED || task->status == JOINED || (task->detached == true && task->status == DONE)) {
         pthread_mutex_unlock(&task->mutex);
         pthread_mutex_destroy(&task->mutex);
         pthread_cond_destroy(&task->cond);
@@ -250,9 +252,23 @@ thread_task_delete(struct thread_task *task)
 int
 thread_task_detach(struct thread_task *task)
 {
-	/* IMPLEMENT THIS FUNCTION */
-	(void)task;
-	return TPOOL_ERR_NOT_IMPLEMENTED;
+    pthread_mutex_lock(&task->mutex);
+    if (task->status == CREATED) {
+        pthread_mutex_unlock(&task->mutex);
+        return TPOOL_ERR_TASK_NOT_PUSHED;
+    }
+
+    if (task->status == DONE || task->status == JOINED) {
+        pthread_mutex_unlock(&task->mutex);
+        pthread_mutex_destroy(&task->mutex);
+        pthread_cond_destroy(&task->cond);
+		free(task);
+        return 0;
+    }
+
+    task->detached = true;
+    pthread_mutex_unlock(&task->mutex);
+    return 0;
 }
 
 #endif
