@@ -106,7 +106,6 @@ void* start_thread_routine_func(void* arg) {
 		pool->task_queue[pool->task_queue_read_pos] = NULL;
 		pool->task_queue_read_pos++;
 		pool->number_thread_busy++;
-		pool->task_waiting--;
 
 		if (pool->task_queue_read_pos == TPOOL_MAX_TASKS) {
             pool->task_queue_read_pos = 0;
@@ -114,8 +113,15 @@ void* start_thread_routine_func(void* arg) {
 
 		// Here we sure that nobody already took this task due to we lock mutex on pool.
 		// So now we can lock task mutex and unlock pool mutex.
+        if (task == NULL) {
+            pool->number_thread_busy--;
+			pthread_mutex_unlock(&pool->mutex);
+            continue;
+        }
+		pool->task_waiting--;
 		pthread_mutex_lock(&task->mutex);
 		pthread_mutex_unlock(&pool->mutex);
+				
 
 		task->status = RUNNING;
 		pthread_mutex_unlock(&task->mutex);
@@ -137,20 +143,16 @@ void* start_thread_routine_func(void* arg) {
 int
 thread_pool_push_task(struct thread_pool *pool, struct thread_task *task)
 {
-	printf("%p\n", &pool->mutex);
-	printf("qwe\n");
 	pthread_mutex_lock(&pool->mutex);
 	if (pool->task_waiting + pool->number_thread_busy >= TPOOL_MAX_TASKS) {
         pthread_mutex_unlock(&pool->mutex);
 		return TPOOL_ERR_TOO_MANY_TASKS;
 	}
 	pthread_mutex_lock(&task->mutex);
-	printf("qwe\n");
 	
-	printf("got mutexs\n");
 	task->status = QUEUED;
 	pthread_mutex_unlock(&task->mutex);
-	
+
 	pool->task_queue[pool->task_queue_write_pos] = task;
 	pool->task_waiting++;
 	pool->task_queue_write_pos++;
@@ -204,10 +206,8 @@ thread_task_join(struct thread_task *task, void **result)
 		return TPOOL_ERR_TASK_NOT_PUSHED;
 	}
 	while (task->status != DONE && task->status != JOINED) {
-		printf("wait\n");
 		pthread_cond_wait(&task->cond, &task->mutex);
 	}
-	printf("uhu\n");
 	*result = task->result;
     task->status = JOINED;
 	pthread_mutex_unlock(&task->mutex);
