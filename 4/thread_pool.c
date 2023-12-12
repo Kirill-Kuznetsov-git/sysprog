@@ -2,6 +2,7 @@
 #include<stdlib.h>
 #include<stdio.h>
 #include <pthread.h>
+#include <unistd.h>
 
 enum task_status {
     CREATED,
@@ -94,10 +95,10 @@ void* start_thread_routine_func(void* arg) {
 		pthread_mutex_lock(&pool->mutex);
 
 		// Wait for new tasks if there is not in queue
-		if (pool->task_waiting == 0 && pool->is_deleted == false) {
+		while (pool->task_waiting == 0 && pool->is_deleted == false) {
 			pthread_cond_wait(&pool->cond, &pool->mutex);
 		}
-		
+
         if (pool->is_deleted) {
             pthread_mutex_unlock(&pool->mutex);
             break;
@@ -119,10 +120,10 @@ void* start_thread_routine_func(void* arg) {
 			pthread_mutex_unlock(&pool->mutex);
             continue;
         }
+
 		pool->task_waiting--;
 		pthread_mutex_lock(&task->mutex);
 		pthread_mutex_unlock(&pool->mutex);
-				
 
 		task->status = RUNNING;
 		pthread_mutex_unlock(&task->mutex);
@@ -136,13 +137,16 @@ void* start_thread_routine_func(void* arg) {
 		task->status = DONE;
 		// Unlock everybody who waiting this task
 		pthread_cond_broadcast(&task->cond);
-		
-		pthread_mutex_unlock(&task->mutex);
-        if (task->detached) {	
+
+		// usleep(100);
+        if (task->detached) {
+			pthread_mutex_unlock(&task->mutex);
             pthread_mutex_destroy(&task->mutex);
             pthread_cond_destroy(&task->cond);
             free(task);
-        }
+        } else {
+			pthread_mutex_unlock(&task->mutex);
+		}
 		
 	}
 	return 0;
